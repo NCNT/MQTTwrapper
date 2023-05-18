@@ -1,0 +1,272 @@
+<!doctype html>
+<!--
+######################################################################
+#
+# ogiri.html:
+#   Ogiri Exhibition Hall (MQTTwrapper Class Demo)
+#
+# Written by Shell-Shoccar Japan (@shellshoccarjpn) / USP-NCNT prj.
+#         on 2023-05-19
+#
+# This is a public-domain software (CC0). It means that all of the
+# people can use this for any purposes with no restrictions at all.
+# By the way, We are fed up with the side effects which are brought
+# about by the major licenses.
+#
+######################################################################
+-->
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>ワンライナー大喜利 (MQTTwrapperクラス・デモ)</title>
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+  <script src="../lib.js/MQTTwrapper.js">{"order":["MQTT.js","Paho"]}</script>
+</head>
+
+<body>
+  <h1>ワンライナー大喜利 (MQTTwrapperクラス・デモ)</h1>
+  <p id="which_library">(No library is wrapped...)</p>
+  <p>詳しくは、本ページ後半の<a href="#Readme">READMEセクション</a>をご覧ください。</p>
+
+  <h2 id="Broker">会場へ接続 (Connect to the broker):</h2>
+  <div>
+    <dl>
+      <dt>URL:</dt>
+      <dd>
+        <select id="prot" onchange="WS_warning()"><option>ws</option><option selected="selected">wss</option></select>://<input type="text" id="addr" value="mqtt0.usp-lab.com" size="20" />:<input type="text" id="port" value="8443" size="5" />/<input type="text" id="path" value="" size="20" /><span id="ws_warning" style="font-size:small;color:red;display:none"><br/>HTTPS上のページから非TLSなWebSocket(ws://)への接続は、多くのブラウザーで禁止されているため失敗する可能性が高いです。</span>
+      </dd>
+      <dd>
+        ⇧<br/>Preset ... <select id="preset_selector" onchange="Preset()"><option value="-">(ここの選択肢を選ぶと各値をセットしてすぐ、この表示に戻ります)</option></select>
+      </dd>
+    </dl>
+    <input type="button" id="connectionbutton"     value="Connect"    style="width:10em" disabled="disabled" onclick="Connect()"    />
+    <input type="button" id="discconnectionbutton" value="Disconnect" style="width:10em" disabled="disabled" onclick="Disconnect()" />
+  </div>
+
+  <h2 id="Publisher">質問送信 (Publisher):</h2>
+  <div>
+    topic = <input type="text" id="sendtopic" value="1Logiri/honban/Q" size="20" /><br/>
+    <textarea id="sendbox"  style="width:40em; height:calc(1.3em*3); line-height:1.3;"></textarea><br/>
+    <input type="button" id="publishbutton" value="Publish" onclick="Publish()" disabled="disabled" />
+  </div>
+
+  <h2 id="Subscriber">回答表示 (Subscriber):</h2>
+  <div>
+    topic = <input type="text" id="recvtopic" value="1Logiri/honban/#" size="20" /><br/>
+    <textarea id="recvbox"  style="width:40em; height:calc(1.3em*5); line-height:1.3;" readonly="readonly"></textarea><br/>
+    <label><input type="checkbox" id="recvtopicname" value="1" checked="checked" /><span style="font-size:smaller">topic名も表示する</span></label><br/>
+    <input type="button" id="recvstart" value="Start"  style="width:7em" onclick="StartSub()" disabled="disabled" />
+    <input type="button" id="recvstop"  value="Stop"   style="width:7em" onclick="StopSub()"  disabled="disabled" />
+    <input type="button" id="recvclear" value="Clear"  style="width:7em" onclick="ClearSub()"                     />
+  </div>
+
+  <script type="text/javascript">
+    //////////////////////////////////////////////////////////////////
+    // Initialize for this webpage
+    //////////////////////////////////////////////////////////////////
+    const oPreset = [ {"label":"本番会場"  , "desc":"大喜利会場 本番 (TLS)"                               , "prot":1, "host":"mqtt0.usp-lab.com"       , "port":8443, "path":""    , "pubtopic":"1Logiri/honban/Q" , "subtopic":"1Logiri/honban/#"   },
+                      {"label":"楽屋1"     , "desc":"大喜利会場 楽屋1 (TLS)"                              , "prot":1, "host":"mqtt0.usp-lab.com"       , "port":8443, "path":""    , "pubtopic":"1Logiri/gakuya1/Q", "subtopic":"1Logiri/gakuya1/#"  },
+                      {"label":"Eclipse1"  , "desc":"Eclipse public MQTT broker"                          , "prot":0, "host":"mqtt.eclipseprojects.io" , "port":  80, "path":"mqtt", "pubtopic":"testtopic", "subtopic":"testtopic/#"},
+                      {"label":"Eclipse2"  , "desc":"Eclipse public MQTT broker (TLS)"                    , "prot":1, "host":"mqtt.eclipseprojects.io" , "port": 443, "path":"mqtt", "pubtopic":"testtopic", "subtopic":"testtopic/#"},
+                      {"label":"EMQX1"     , "desc":"EMQX MQTT Public Broker"                             , "prot":0, "host":"broker.emqx.io"          , "port":8083, "path":"mqtt", "pubtopic":"testtopic", "subtopic":"testtopic/#"},
+                      {"label":"EMQX2"     , "desc":"EMQX MQTT Public Broker (TLS)"                       , "prot":1, "host":"broker.emqx.io"          , "port":8084, "path":"mqtt", "pubtopic":"testtopic", "subtopic":"testtopic/#"},
+                      {"label":"HiveMQ1"   , "desc":"HiveMQ Free Public broker"                           , "prot":0, "host":"broker.hivemq.com"       , "port":8000, "path":"mqtt", "pubtopic":"testtopic", "subtopic":"testtopic/#"},
+                      {"label":"HiveMQ2"   , "desc":"HiveMQ Free Public broker (TLS)"                     , "prot":1, "host":"broker.hivemq.com"       , "port":8884, "path":"mqtt", "pubtopic":"testtopic", "subtopic":"testtopic/#"},
+                      {"label":"HiveMQ3"   , "desc":"HiveMQ MQTT Browser Client"                          , "prot":0, "host":"broker.mqttdashboard.com", "port":8000, "path":"mqtt", "pubtopic":"testtopic", "subtopic":"testtopic/#"},
+                      {"label":"Mosquitto1", "desc":"Eclipse Mosquitto MQTT broker"                       , "prot":0, "host":"test.mosquitto.org"      , "port":8081, "path":""    , "pubtopic":"testtopic", "subtopic":"testtopic/#"},
+                      {"label":"Mosquitto2", "desc":"Eclipse Mosquitto MQTT broker (TLS)"                 , "prot":1, "host":"test.mosquitto.org"      , "port":8081, "path":""    , "pubtopic":"testtopic", "subtopic":"testtopic/#"},
+                      {"label":"RichLab."  , "desc":"test broker by RichLab. (TLS)"                       , "prot":1, "host":"testbroker.richlab.org"  , "port":8884, "path":""    , "pubtopic":"1Logiri/honban/Q", "subtopic":"1Logiri/honban/#"  }   ];
+    (function(){
+      let eSel,eOpt,i;
+      eSel = document.getElementById('preset_selector');
+      if (! eSel                     ) {return;}
+      if (typeof oPreset !== 'object') {return;}
+      for (i=0; i<oPreset.length; i++) {
+        eOpt = document.createElement('option');
+        eOpt.value     = oPreset[i].label                                ;
+        eOpt.innerHTML = oPreset[i].label + ' &mdash; ' + oPreset[i].desc;
+        eSel.appendChild(eOpt);
+      }
+    })();
+
+    //////////////////////////////////////////////////////////////////
+    // Initialize for MQTTwrapper
+    //////////////////////////////////////////////////////////////////
+    let oMQTTw;
+    
+    let eWSwarn        = document.getElementById('ws_warning'          );
+    let ePreset        = document.getElementById('preset_selector'     );
+    let eConn          = document.getElementById('connectionbutton'    );
+    let eDcon          = document.getElementById('discconnectionbutton');
+    let ePub           = document.getElementById('publishbutton'       );
+    let eProt          = document.getElementById('prot'                );
+    let eAddr          = document.getElementById('addr'                );
+    let ePort          = document.getElementById('port'                );
+    let ePath          = document.getElementById('path'                );
+    let eSendbox       = document.getElementById('sendbox'             );
+    let eSendtopic     = document.getElementById('sendtopic'           );
+    let eRecvbox       = document.getElementById('recvbox'             );
+    let eRecvtopic     = document.getElementById('recvtopic'           );
+    let eRecvtopicname = document.getElementById('recvtopicname'       );
+    let eRecvstart     = document.getElementById('recvstart'           );
+    let eRecvstop      = document.getElementById('recvstop'            );
+    let eRecvclear     = document.getElementById('recvclear'           );
+    
+    if (MQTTwrapper.sLibname !== '') {
+      let e=document.getElementById('which_library');
+      if (e) {e.innerHTML='(Wrapped library this time is "'+MQTTwrapper.sLibname+'")';}
+      eConn.disabled = false;
+      eDcon.disabled = false;
+    }
+    WS_warning();
+
+
+    //////////////////////////////////////////////////////////////////
+    // Button Attached Functions
+    //////////////////////////////////////////////////////////////////
+    
+    function Connect() {
+      oMQTTw = new MQTTwrapper(eProt.value + '://' + eAddr.value + ':' + ePort.value + '/' + ePath.value);
+      if (! oMQTTw) { alert('MQTTwrapper does not work correctly'); return; };
+      
+      eConn.value      = 'CONNECTING...';
+      eConn.disabled   = true;
+      ePreset.disabled = true;
+      
+      oMQTTw.connect({
+        //--- callback for connected ---------------------------------
+        "cbConnected"    : () => { eProt.item(1-eProt.selectedIndex).disabled = true;
+                                   eAddr.readOnly                             = true;
+                                   ePort.readOnly                             = true;
+                                   ePath.readOnly                             = true;
+                                   eConn.value                                = 'NOW CONNECTED';
+                                   eConn.disabled                             = true;
+                                   ePreset.disabled                           = true;
+                                   ePub.disabled                              = false;
+                                   eRecvstart.disabled                        = false;
+                                   eRecvstop.disabled                         =  true;          },
+        //--- callback for disconnected ------------------------------
+        "cbDisconnected" : Disconnect,
+        "cbKilled"       : Disconnect,
+        //--- callback for connecting error --------------------------
+        "cbFailed"       : (s)=> { alert(s)                                              ;
+                                   eConn.value                                = 'Connect';
+                                   ePreset.disabled                           = false;
+                                   eConn.disabled                             = false;          }
+      });
+    }
+    
+    function Disconnect() {
+      if (! oMQTTw           ) {return             ;}
+      if (  oMQTTw.bConnected) {oMQTTw.disconnect();}
+      oMQTTw.disconnect();
+      eProt.item(1-eProt.selectedIndex).disabled = false;
+      eAddr.readOnly                             = false;
+      ePort.readOnly                             = false;
+      ePath.readOnly                             = false;
+      eRecvtopic.readOnly                        = false;
+      eConn.value                                = 'Connect';
+      eConn.disabled                             = false;
+      ePreset.disabled                           = false;
+      ePub.disabled                              = true;
+      eRecvstart.disabled                        = true;
+      eRecvstop.disabled                         = true;
+    }
+    
+    function Publish() {
+      let msg = eSendbox.value;
+      if (msg === '') {alert('An empty message is not allowed!'); return false;}
+      return oMQTTw.publish(eSendtopic.value, eSendbox.value);
+    }
+    
+    function Receiver(sMessage, sTopic) {
+      eRecvbox.value += ((eRecvbox.value!='')?'\n':'') 
+                        + ((eRecvtopicname.checked)?sTopic+' : ':'')
+                        + sMessage;
+      eRecvbox.scrollTop = eRecvbox.scrollHeight;
+    }
+    
+    function StartSub() {
+      let topic = eRecvtopic.value;
+      if (topic === '') {
+        eSendbox.value = 'NOT Subscribe due to no topic';
+        return false;
+      }
+      if (! oMQTTw.setReceiverCallback(Receiver)) {return false;}
+      if (! oMQTTw.subscribe(topic)             ) {return false;}
+      eRecvtopic.readOnly = true;
+      eRecvstart.disabled = true;
+      eRecvstop.disabled  = false;
+      return true;
+    }
+    
+    function StopSub() {
+      let topic = eRecvtopic.value;
+      if (! oMQTTw.unsubscribe(topic)) {return false;}
+      eRecvtopic.readOnly = false;
+      eRecvstart.disabled = false;
+      eRecvstop.disabled  = true;
+      return true;
+    }
+    
+    function ClearSub() {
+      eRecvbox.value = '';
+    }
+    
+    function WS_warning() {
+      if ((eProt.selectedIndex==0)                                                &&
+          (location.protocol==='https:')                                          &&
+          (! eAddr.value.match(/(^|[A-Z0-9])(localhost|127\.\d+\.\d+\.\d+|::1)$/))  ) {eWSwarn.style.display='inline';return;}
+      if ( eProt.selectedIndex==1                                                   ) {eWSwarn.style.display='none'  ;return;}
+    }
+    
+    function Preset() {
+      if ( typeof(oMQTTw)==='undefined'                            ||
+          (typeof(oMQTTw)==='object'   &&oMQTTw.bConnected===false)  ) {
+        if (ePreset.selectedIndex==0) {return;}
+        eProt.selectedIndex = oPreset[ePreset.selectedIndex-1].prot    ;
+        eAddr.value         = oPreset[ePreset.selectedIndex-1].host    ;
+        ePort.value         = oPreset[ePreset.selectedIndex-1].port    ;
+        ePath.value         = oPreset[ePreset.selectedIndex-1].path    ;
+        eSendtopic.value    = oPreset[ePreset.selectedIndex-1].pubtopic;
+        eRecvtopic.value    = oPreset[ePreset.selectedIndex-1].subtopic;
+        WS_warning(oPreset[ePreset.selectedIndex-1].prot);
+      }
+      ePreset.selectedIndex = 0;
+    }
+  </script>
+
+
+  <h2 id="Readme">README (これは何?):</h3>
+  <p>これは、2023/05/19の技術交流会で行う予定のワンライナー大喜利で使う出題&amp;回答フォームです。大喜利を通して<a href="https://qol-kk.com/wp2/blog/2021/06/01/post-2912/">MQTT over WebSocket</a>を学びましょう。</p>
+  <p>MQTT over WebSocketの技術的な話は省略して結論だけ言うと、<span style="text-decoration: underline;">MQTTはUNIXの標準入出力をネットに飛ばしたり受け取ったりするために便利なプロトコル</span>、<span style="text-decoration: underline;">WebSocketはWeb業界における標準入出力っぽい技術</span>であり、それらを組み合わせたMQTT over WebSocketとはつまり<strong>WebブラウザーをUNIXの標準入出力に繋ぐための技術の一種</strong>といえます。</p>
+
+  <h2>ワンライナー大喜利の楽しみ方:</h2>
+  <h3>0) 【準備】Mosquittoのインストール</h3>
+  <p>UNIXホストでMQTTを使えるようにするためのアプリの一種<a href="https://mosquitto.org/download/">“Mosquitto”（モスキート、「蚊」とは微妙にスペルが違う）</a>をインストールします。<a href="https://qiita.com/n-yamanaka/items/73e4d3022186732b4e88">CentOSならyumやdnf、Ubuntuならaptにパッケージがあります</a>のでドキュメントを見ながらインストールしてください。</p>
+  <h3>1) 【演者のみ】回答を生成するワンライナーを書く</h3>
+  <p>さてここで、質問文を入力されたら何らかの回答文を返すワンライナーを、頭をひねって作ってください。ここでは例として、『富澤ジェネレーター』を作ってみることにします。</p>
+  <p>Mosquittoをインストールしたホストで次のワンライナーを実行してください。<br/>
+     <textarea style="width:40em; height:calc(1.3em*4); line-height:1.3;" readonly="readonly">$ ub='stdbuf -o L'
+$ mosquitto_sub -t 1Logiri/honban/Q -h mqtt0.usp-lab.com | $ub sed 's/.*/伊達「&」;富澤「ちょっと何言ってるか分からないです」/' | $ub tr ';' '\n' | mosquitto_pub -l -t 1Logiri/honban/A -h mqtt0.usp-lab.com</textarea></p>
+  <ul>
+    <li>先頭の“<code>mosquitto_sub</code>と、末尾の“<code>mosquitto_pub</code>”はMQTT送受信のために必ず要ります。</li>
+    <ul>
+      <li>各コマンドオプションはとりあえずおまじないと考えて、そのまま真似してもらえばOKです。</li>
+      <li>一箇所だけ“<code>-t</code>”オプションに続く文字列について説明すると、この文字列は、今繋いでいるMQTT brokerサーバー上でどのチャンネルに対してメッセージを送るか・どのチャンネルのメッセージをモニターするかを指定するための名称（トピックと言う）です。ここを区別すると、自分のチャンネルを自由に持てます。</li>
+      <li>この文字列はディレクトリーのように“<code>/</code>”で階層化できますし、“<code>#</code>”（“<code>*</code>”ではない）でワイルドカード指定できます。</li>
+    </ul>
+    <li>途中の“<code>$ub</code>”こと“<code>stdbuf -o L</code>”は、コマンドのパイプ詰まり（バッファリング）を無くすために必要です。「各コマンドにテキストデータを与えたのに出力されない」という場合はコマンドの手前に接頭句として付けてください。（ただし原則としてTukubaiコマンドには不要です。というか効きません）</li>
+  </ul>
+  <h3>2) 【演者・観覧者】本ページから大喜利会場（MQTT broker）に接続</h3>
+  <p>回答ワンライナーが完成したら、このWebページを大喜利会場となっているMQTT brokerに接続してください。このページ冒頭の<a href="#Broker">URL入力欄</a>に、次のアドレスは“<code>wss://mqtt0.usp-lab.com:8443/</code>”を入力して[Connect]ボタンを押すのですが、デフォルトでこれが入力されていると思いますので、単にボタンを押すだけでOKです。</p>
+  <h3>3) 【演者・観覧者】回答を観覧する</h3>
+  <p>大喜利会場サーバーに接続したら、やり取りされる掛け合いの観覧を始めましょう（演者の皆さんも）。</p>
+  <p>やり方は簡単。<a href="#Subscriber">回答表示</a>セクションのtopic欄に“<code>1Logiri/honban/#</code>”と入力して、[Start]ボタンを押すだけ。おっと、「topic名も表示する」にチェックを入れておくと、質問者と回答者それぞれ、どっちがどっちなのかわかりやすくなりますのでオススメです。</p>
+  <h3>4) 【演者のみ】質問文を投げかける</h3>
+  <p>演者の皆さんは、面白い質問を投げかけて、閲覧者を笑かしてください！</p>
+  <p>方法は、<a href="Publisher">質問送信</a>セクションにあるtopic欄に“<code>1Logiri/honban/Q</code>”と入力されていることを確認しつつ、その下の入力欄に質問文を書き入れ、[Publish]ボタンを押すだけです。うまくいけば、作ったワンライナーが面白い答えを生成し、観覧している人のWebブラウザーにもれなく質問文・回答文が表示されます。</p>
+  <p><strong style="color:red;font-size:larger">ヤマダくん、座布団一枚！</strong></p>
+</body>
+</html>
